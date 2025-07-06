@@ -4,7 +4,7 @@ require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const nodemailer = require('nodemailer'); // ¡NUEVO! Importa nodemailer
+const nodemailer = require('nodemailer'); // Importa nodemailer
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,8 +32,7 @@ pool.connect()
         console.error('Connection string:', process.env.DATABASE_URL);
     });
 
-// ¡NUEVO! Configuración de Nodemailer
-// Usaremos Gmail como ejemplo. Asegúrate de generar una "Contraseña de aplicación" para tu cuenta de Google.
+// Configuración de Nodemailer
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -54,7 +53,8 @@ app.get('/', (req, res) => {
 // GET /api/appointments - Obtener todos los turnos agendados
 app.get('/api/appointments', async (req, res) => {
     try {
-        const result = await pool.query('SELECT fecha, hora, servicio FROM turnos_nailscata');
+        // Asegúrate de seleccionar también el 'id' para poder eliminar turnos por ID
+        const result = await pool.query('SELECT id, fecha, hora, servicio, nombre, email, message FROM turnos_nailscata ORDER BY fecha, hora');
         res.json({ reservedSlots: result.rows });
     } catch (err) {
         console.error('Error al obtener turnos:', err.message);
@@ -82,7 +82,7 @@ app.post('/api/appointments', async (req, res) => {
         const result = await pool.query(query, values);
         const newAppointment = result.rows[0]; // El turno recién agendado
 
-        // ¡NUEVO! Enviar notificación por correo electrónico
+        // Enviar notificación por correo electrónico
         const mailOptions = {
             from: process.env.EMAIL_USER, // Desde tu Gmail
             to: process.env.EMAIL_USER,   // A tu mismo Gmail (o a otro correo si quieres)
@@ -106,8 +106,6 @@ app.post('/api/appointments', async (req, res) => {
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
                 console.error('Error al enviar correo de notificación:', error.message);
-                // NOTA: No enviamos un 500 al cliente si el correo falla, ya que el turno ya se guardó.
-                // Es un problema interno que no afecta la acción principal del usuario.
             } else {
                 console.log('Correo de notificación enviado:', info.response);
             }
@@ -120,10 +118,30 @@ app.post('/api/appointments', async (req, res) => {
 
     } catch (err) {
         console.error('Error al agendar turno:', err.message);
-        if (err.code === '23505') {
+        if (err.code === '23505') { // Código para violación de restricción de unicidad (ej. si intentas agendar 2 veces la misma fecha/hora)
             return res.status(409).json({ error: 'Ya existe un turno agendado para esta fecha y hora.' });
         }
         res.status(500).json({ error: 'Error interno del servidor al agendar turno.' });
+    }
+});
+
+// DELETE /api/appointments/:id - Eliminar un turno por su ID
+app.delete('/api/appointments/:id', async (req, res) => {
+    const { id } = req.params; // Obtener el ID del turno desde la URL
+
+    try {
+        const result = await pool.query('DELETE FROM turnos_nailscata WHERE id = $1 RETURNING *;', [id]);
+
+        if (result.rowCount === 0) {
+            // Si no se encontró ningún turno con ese ID
+            return res.status(404).json({ error: 'Turno no encontrado.' });
+        }
+
+        res.status(200).json({ message: 'Turno eliminado con éxito.', deletedAppointment: result.rows[0] });
+
+    } catch (err) {
+        console.error('Error al eliminar turno:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al eliminar turno.' });
     }
 });
 
