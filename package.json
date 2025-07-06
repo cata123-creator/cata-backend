@@ -1,0 +1,26 @@
+{
+  "name": "nailscata-backend",
+  "version": "1.0.0",
+  "description": "Backend para la aplicación de reservas de NailsCata",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "nails",
+    "beauty",
+    "booking",
+    "backend",
+    "nodejs",
+    "express",
+    "postgresql"
+  ],
+  "author": "Tu Nombre",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
