@@ -10,8 +10,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
+const cors = require('cors');
+
 app.use(cors({
-  origin: 'https://nailscata1.netlify.app'
+  origin: ['https://nailscata1.netlify.app', 'http://localhost:3000']  // podés agregar más si querés
 }));
 app.use(express.json());
 
