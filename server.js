@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-    origin: ['https://nailscata1.netlify.app', 'http://localhost:3000']  // podés agregar más si querés
+    origin: ['https://nailscata1.netlify.app', 'http://localhost:3000']  // podés agregar más si querés
 }));
 app.use(express.json());
 
@@ -39,7 +39,7 @@ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER, // Tu dirección de Gmail (ej. tu_email@gmail.com)
-        pass: process.env.EMAIL_PASS  // Tu Contraseña de Aplicación de Gmail
+        pass: process.env.EMAIL_PASS  // Tu Contraseña de Aplicación de Gmail
     }
 });
 
@@ -87,7 +87,7 @@ app.post('/api/appointments', async (req, res) => {
         // Enviar notificación por correo electrónico
         const mailOptions = {
             from: process.env.EMAIL_USER, // Desde tu Gmail
-            to: process.env.EMAIL_USER,   // A tu mismo Gmail (o a otro correo si quieres)
+            to: process.env.EMAIL_USER,   // A tu mismo Gmail (o a otro correo si quieres)
             subject: 'Nuevo Turno Agendado en NailsCata',
             html: `
                 <p>¡Hola!</p>
@@ -136,20 +136,18 @@ app.get('/api/available-times', async (req, res) => {
     }
 
     try {
-        const dayOfWeek = new Date(date).getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-
-        // Obtener los horarios base para el día de la semana desde la base de datos
+        // Obtener los horarios base configurados para esta FECHA específica desde la base de datos
         const scheduleResult = await pool.query(
-            'SELECT available_times FROM schedules WHERE day_of_week_num = $1;',
-            [dayOfWeek]
+            'SELECT available_times FROM schedules WHERE date = $1;',
+            [date]
         );
 
         let availableTimes = [];
         if (scheduleResult.rows.length > 0) {
             availableTimes = scheduleResult.rows[0].available_times;
         } else {
-            // Si no hay configuración en la DB para este día, el día se considera sin horarios.
-            console.log(`No schedule found in DB for day_of_week_num: ${dayOfWeek}`);
+            // Si no hay configuración en la DB para esta fecha específica, se considera sin horarios.
+            console.log(`No schedule found in DB for date: ${date}`);
         }
 
         // Obtener los horarios ya reservados para esta fecha desde la base de datos
@@ -169,6 +167,7 @@ app.get('/api/available-times', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor al obtener horarios disponibles.' });
     }
 });
+
 
 // DELETE /api/appointments/:id - Eliminar un turno por su ID
 app.delete('/api/appointments/:id', async (req, res) => {
@@ -191,75 +190,75 @@ app.delete('/api/appointments/:id', async (req, res) => {
 });
 
 // =========================================================
-// RUTAS PARA LA GESTIÓN DE HORARIOS DISPONIBLES
+// RUTAS PARA LA GESTIÓN DE HORARIOS DISPONIBLES (POR FECHA)
 // =========================================================
 
-// POST /api/schedules - Crear o actualizar un horario para un día específico
-// Body: { day_of_week_num: 0-6, day_name: 'Monday', available_times: ["09:00", "10:00"] }
+// POST /api/schedules - Crear o actualizar un horario para una fecha específica
+// Body: { date: 'YYYY-MM-DD', available_times: ["HH:MM", "HH:MM"] }
 app.post('/api/schedules', async (req, res) => {
-    const { day_of_week_num, day_name, available_times } = req.body;
+    const { date, available_times } = req.body;
 
-    if (day_of_week_num === undefined || !day_name || !Array.isArray(available_times)) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios: day_of_week_num, day_name, available_times (array).' });
+    if (!date || !Array.isArray(available_times)) {
+        return res.status(400).json({ error: 'Faltan campos obligatorios: date, available_times (array).' });
     }
 
     try {
         // Usamos INSERT ... ON CONFLICT para insertar si no existe, o actualizar si ya existe
         const query = `
-            INSERT INTO schedules (day_of_week_num, day_name, available_times)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (day_of_week_num) DO UPDATE SET
-                day_name = EXCLUDED.day_name,
+            INSERT INTO schedules (date, available_times)
+            VALUES ($1, $2)
+            ON CONFLICT (date) DO UPDATE SET
                 available_times = EXCLUDED.available_times
             RETURNING *;
         `;
-        const values = [day_of_week_num, day_name, available_times];
+        const values = [date, available_times];
         const result = await pool.query(query, values);
-        res.status(200).json({ message: 'Horario guardado/actualizado con éxito.', schedule: result.rows[0] });
+        res.status(200).json({ message: 'Horario guardado/actualizado con éxito para la fecha.', schedule: result.rows[0] });
     } catch (err) {
-        console.error('Error al guardar/actualizar horario:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al guardar/actualizar horario.' });
+        console.error('Error al guardar/actualizar horario por fecha:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al guardar/actualizar horario por fecha.' });
     }
 });
 
-// GET /api/schedules - Obtener todos los horarios configurados
+// GET /api/schedules - Obtener todos los horarios configurados por fecha
 app.get('/api/schedules', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM schedules ORDER BY day_of_week_num;');
+        // Ordenamos por fecha para una mejor visualización
+        const result = await pool.query('SELECT * FROM schedules ORDER BY date;');
         res.status(200).json({ schedules: result.rows });
     } catch (err) {
-        console.error('Error al obtener horarios configurados:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al obtener horarios configurados.' });
+        console.error('Error al obtener horarios configurados por fecha:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener horarios configurados por fecha.' });
     }
 });
 
-// GET /api/schedules/:dayOfWeekNum - Obtener horario de un día específico
-app.get('/api/schedules/:dayOfWeekNum', async (req, res) => {
-    const { dayOfWeekNum } = req.params;
+// GET /api/schedules/:date - Obtener horario de una fecha específica
+app.get('/api/schedules/:date', async (req, res) => {
+    const { date } = req.params; // La fecha viene en formato YYYY-MM-DD
     try {
-        const result = await pool.query('SELECT * FROM schedules WHERE day_of_week_num = $1;', [dayOfWeekNum]);
+        const result = await pool.query('SELECT * FROM schedules WHERE date = $1;', [date]);
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Horario para el día no encontrado.' });
+            return res.status(404).json({ error: 'Horario para la fecha no encontrado.' });
         }
         res.status(200).json({ schedule: result.rows[0] });
     } catch (err) {
-        console.error('Error al obtener horario por día:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al obtener horario por día.' });
+        console.error('Error al obtener horario por fecha:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener horario por fecha.' });
     }
 });
 
-// DELETE /api/schedules/:dayOfWeekNum - Eliminar el horario configurado para un día
-app.delete('/api/schedules/:dayOfWeekNum', async (req, res) => {
-    const { dayOfWeekNum } = req.params;
+// DELETE /api/schedules/:date - Eliminar el horario configurado para una fecha
+app.delete('/api/schedules/:date', async (req, res) => {
+    const { date } = req.params; // La fecha viene en formato YYYY-MM-DD
     try {
-        const result = await pool.query('DELETE FROM schedules WHERE day_of_week_num = $1 RETURNING *;', [dayOfWeekNum]);
+        const result = await pool.query('DELETE FROM schedules WHERE date = $1 RETURNING *;', [date]);
         if (result.rowCount === 0) {
-            return res.status(404).json({ error: 'Horario para el día no encontrado.' });
+            return res.status(404).json({ error: 'Horario para la fecha no encontrado.' });
         }
-        res.status(200).json({ message: 'Horario del día eliminado con éxito.', deletedSchedule: result.rows[0] });
+        res.status(200).json({ message: 'Horario de la fecha eliminado con éxito.', deletedSchedule: result.rows[0] });
     } catch (err) {
-        console.error('Error al eliminar horario:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al eliminar horario.' });
+        console.error('Error al eliminar horario por fecha:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al eliminar horario por fecha.' });
     }
 });
 
