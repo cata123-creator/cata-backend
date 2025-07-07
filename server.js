@@ -127,6 +127,46 @@ app.post('/api/appointments', async (req, res) => {
     }
 });
 
+// GET /api/available-times?date=YYYY-MM-DD - Obtener horarios disponibles para una fecha específica
+app.get('/api/available-times', async (req, res) => {
+    const { date } = req.query; // Obtener la fecha de los parámetros de la URL
+
+    if (!date) {
+        return res.status(400).json({ error: 'Falta el parámetro de fecha.' });
+    }
+
+    try {
+        // Lógica para determinar los horarios base según el día de la semana
+        let availableTimes = [];
+        const dayOfWeek = new Date(date).getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+
+        // Define tus horarios:
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) { // Lunes a Viernes
+            availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+        } else if (dayOfWeek === 6) { // Sábado
+            availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00'];
+        }
+        // Si trabajas los domingos, puedes añadir un 'else if (dayOfWeek === 0)' con sus propios horarios.
+        // Si no se trabaja un día, simplemente no se añade nada a 'availableTimes' para ese día.
+
+        // Obtener los horarios ya reservados para esta fecha desde la base de datos
+        const bookedTimesResult = await pool.query(
+            'SELECT hora FROM turnos_nailscata WHERE fecha = $1;',
+            [date]
+        );
+        const bookedTimes = bookedTimesResult.rows.map(row => row.hora);
+
+        // Filtrar los horarios base para quitar los que ya están reservados
+        const filteredTimes = availableTimes.filter(time => !bookedTimes.includes(time));
+
+        res.status(200).json({ availableTimes: filteredTimes });
+
+    } catch (err) {
+        console.error('Error al obtener horarios disponibles:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener horarios disponibles.' });
+    }
+});
+
 // DELETE /api/appointments/:id - Eliminar un turno por su ID
 app.delete('/api/appointments/:id', async (req, res) => {
     const { id } = req.params; // Obtener el ID del turno desde la URL
