@@ -39,128 +39,106 @@ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER, // Tu dirección de Gmail (ej. tu_email@gmail.com)
-        pass: process.env.EMAIL_PASS  // Tu Contraseña de Aplicación de Gmail
+        pass: process.env.EMAIL_PASS  // Tu contraseña de aplicación de Gmail (no tu contraseña normal)
     }
 });
 
 // Ruta de prueba
 app.get('/', (req, res) => {
-    res.send('Backend de NailsCata funcionando!');
+    res.send('Servidor de NailsCata está funcionando. ¡Bienvenido!');
 });
 
-// =========================================================
-// RUTAS PARA LA GESTIÓN DE TURNOS DE NAILSCATA
-// =========================================================
-
-// GET /api/appointments - Obtener todos los turnos agendados
-app.get('/api/appointments', async (req, res) => {
-    try {
-        // Asegúrate de seleccionar también el 'id' para poder eliminar turnos por ID
-        const result = await pool.query('SELECT id, fecha, hora, servicio, nombre, telefono, message FROM turnos_nailscata ORDER BY fecha, hora');
-        res.json({ reservedSlots: result.rows });
-    } catch (err) {
-        console.error('Error al obtener turnos:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al obtener turnos' });
-    }
-});
-
-// POST /api/appointments - Agendar un nuevo turno
+// POST /api/appointments - Agendar una nueva cita
 app.post('/api/appointments', async (req, res) => {
-    const { fecha, hora, servicio, nombre, telefono, message } = req.body;
-
-    // Validar datos de entrada (simple)
-    if (!fecha || !hora || !servicio || !nombre || !telefono) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios para agendar el turno.' });
-    }
-
+    const { nombre, telefono, servicio, fecha, hora, message } = req.body;
     try {
-        const query = `
-            INSERT INTO turnos_nailscata (fecha, hora, servicio, nombre, telefono, message)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *;
-        `;
-        const values = [fecha, hora, servicio, nombre, telefono, message || null];
+        // Verificar si la fecha y hora ya están ocupadas
+        const existingAppointment = await pool.query(
+            'SELECT * FROM appointments WHERE fecha = $1 AND hora = $2',
+            [fecha, hora]
+        );
 
-        const result = await pool.query(query, values);
-        const newAppointment = result.rows[0]; // El turno recién agendado
+        if (existingAppointment.rows.length > 0) {
+            return res.status(409).json({ error: 'La fecha y hora seleccionadas ya están ocupadas.' });
+        }
 
-        // Enviar notificación por correo electrónico
+        // Insertar la nueva cita
+        const result = await pool.query(
+            'INSERT INTO appointments (nombre, telefono, servicio, fecha, hora, message) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [nombre, telefono, servicio, fecha, hora, message]
+        );
+
+        // Enviar correo electrónico de confirmación
         const mailOptions = {
-            from: process.env.EMAIL_USER, // Desde tu Gmail
-            to: process.env.EMAIL_USER,   // A tu mismo Gmail (o a otro correo si quieres)
-            subject: 'Nuevo Turno Agendado en NailsCata',
+            from: process.env.EMAIL_USER,
+            to: process.env.EMAIL_USER, // Puedes enviar al cliente también si tienes su email
+            subject: 'Nueva Cita Agendada en NailsCata',
             html: `
-                <p>¡Hola!</p>
-                <p>Se ha agendado un nuevo turno en NailsCata:</p>
+                <p><strong>Detalles de la Cita:</strong></p>
                 <ul>
-                    <li><strong>Nombre:</strong> ${newAppointment.nombre}</li>
-                    <li><strong>Teléfono:</strong> ${newAppointment.telefono}</li>
-                    <li><strong>Servicio:</strong> ${newAppointment.servicio}</li>
-                    <li><strong>Fecha:</strong> ${newAppointment.fecha}</li>
-                    <li><strong>Hora:</strong> ${newAppointment.hora}</li>
-                    ${newAppointment.message ? `<li><strong>Mensaje:</strong> ${newAppointment.message}</li>` : ''}
+                    <li><strong>Nombre:</strong> ${nombre}</li>
+                    <li><strong>Teléfono:</strong> ${telefono}</li>
+                    <li><strong>Servicio:</strong> ${servicio}</li>
+                    <li><strong>Fecha:</strong> ${fecha}</li>
+                    <li><strong>Hora:</strong> ${hora}</li>
+                    <li><strong>Mensaje:</strong> ${message || 'N/A'}</li>
                 </ul>
-                <p>¡Revisa tu agenda!</p>
-                <p>Saludos,<br>NailsCata</p>
+                <p>¡Gracias por tu reserva!</p>
             `
         };
 
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
-                console.error('Error al enviar correo de notificación:', error.message);
+                console.error('Error al enviar el correo:', error);
             } else {
-                console.log('Correo de notificación enviado:', info.response);
+                console.log('Correo enviado:', info.response);
             }
         });
 
-        res.status(201).json({
-            message: 'Turno agendado con éxito. Se ha enviado una notificación por correo.',
-            appointment: newAppointment
-        });
-
+        res.status(201).json(result.rows[0]); // Devolver la cita creada
     } catch (err) {
-        console.error('Error al agendar turno:', err.message);
-        if (err.code === '23505') { // Código para violación de restricción de unicidad (ej. si intentas agendar 2 veces la misma fecha/hora)
-            return res.status(409).json({ error: 'Ya existe un turno agendado para esta fecha y hora.' });
-        }
-        res.status(500).json({ error: 'Error interno del servidor al agendar turno.' });
+        console.error('Error al agendar la cita:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al agendar la cita.' });
     }
 });
 
-// GET /api/available-times?date=YYYY-MM-DD - Obtener horarios disponibles para una fecha específica
-app.get('/api/available-times', async (req, res) => {
-    const { date } = req.query; // Obtener la fecha de los parámetros de la URL
-
-    if (!date) {
-        return res.status(400).json({ error: 'Falta el parámetro de fecha.' });
-    }
-
+// GET /api/appointments - Obtener todas las citas (útil para la gestión)
+app.get('/api/appointments', async (req, res) => {
     try {
-        // Obtener los horarios base configurados para esta FECHA específica desde la base de datos
-        const scheduleResult = await pool.query(
-            'SELECT available_times FROM schedules WHERE date = $1;',
-            [date]
-        );
+        const result = await pool.query('SELECT * FROM appointments ORDER BY fecha ASC, hora ASC');
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error('Error al obtener citas:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener citas.' });
+    }
+});
 
-        let availableTimes = [];
-        if (scheduleResult.rows.length > 0) {
-            availableTimes = scheduleResult.rows[0].available_times;
-        } else {
-            // Si no hay configuración en la DB para esta fecha específica, se considera sin horarios.
-            console.log(`No schedule found in DB for date: ${date}`);
+// GET /api/available-times - Obtener horarios disponibles para una fecha específica
+app.get('/api/available-times', async (req, res) => {
+    const { date } = req.query; // La fecha viene en formato YYYY-MM-DD
+    console.log(`[DEBUG] Recibida solicitud para fecha: ${date}`); // NUEVO LOG
+    try {
+        // 1. Obtener todos los horarios configurados para la fecha
+        const scheduleResult = await pool.query('SELECT available_times FROM schedules WHERE date = $1', [date]);
+
+        if (scheduleResult.rows.length === 0) {
+            console.log(`[DEBUG] No se encontró horario configurado para ${date}.`); // NUEVO LOG
+            return res.status(200).json({ availableTimes: [] });
         }
 
-        // Obtener los horarios ya reservados para esta fecha desde la base de datos
-        const bookedTimesResult = await pool.query(
-            'SELECT hora FROM turnos_nailscata WHERE fecha = $1;',
-            [date]
-        );
-        const bookedTimes = bookedTimesResult.rows.map(row => row.hora);
+        let allAvailableTimes = scheduleResult.rows[0].available_times;
+        console.log(`[DEBUG] Horarios configurados (allAvailableTimes):`, allAvailableTimes); // NUEVO LOG
 
-        // Filtrar los horarios base para quitar los que ya están reservados
-        const filteredTimes = availableTimes.filter(time => !bookedTimes.includes(time));
+        // 2. Obtener los horarios ya ocupados (citas) para la fecha
+        const occupiedResult = await pool.query('SELECT hora FROM appointments WHERE fecha = $1', [date]);
+        let occupiedTimes = occupiedResult.rows.map(row => row.hora);
+        console.log(`[DEBUG] Horarios ocupados (occupiedTimes):`, occupiedTimes); // NUEVO LOG
 
-        res.status(200).json({ availableTimes: filteredTimes });
+        // 3. Filtrar los horarios ocupados de los disponibles
+        let finalAvailableTimes = allAvailableTimes.filter(time => !occupiedTimes.includes(time));
+        console.log(`[DEBUG] Horarios finales disponibles (finalAvailableTimes):`, finalAvailableTimes); // NUEVO LOG
+
+        res.status(200).json({ availableTimes: finalAvailableTimes });
 
     } catch (err) {
         console.error('Error al obtener horarios disponibles:', err.message);
@@ -168,71 +146,33 @@ app.get('/api/available-times', async (req, res) => {
     }
 });
 
-
-// DELETE /api/appointments/:id - Eliminar un turno por su ID
-app.delete('/api/appointments/:id', async (req, res) => {
-    const { id } = req.params; // Obtener el ID del turno desde la URL
-
-    try {
-        const result = await pool.query('DELETE FROM turnos_nailscata WHERE id = $1 RETURNING *;', [id]);
-
-        if (result.rowCount === 0) {
-            // Si no se encontró ningún turno con ese ID
-            return res.status(404).json({ error: 'Turno no encontrado.' });
-        }
-
-        res.status(200).json({ message: 'Turno eliminado con éxito.', deletedAppointment: result.rows[0] });
-
-    } catch (err) {
-        console.error('Error al eliminar turno:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al eliminar turno.' });
-    }
-});
-
-// =========================================================
-// RUTAS PARA LA GESTIÓN DE HORARIOS DISPONIBLES (POR FECHA)
-// =========================================================
-
-// POST /api/schedules - Crear o actualizar un horario para una fecha específica
-// Body: { date: 'YYYY-MM-DD', available_times: ["HH:MM", "HH:MM"] }
+// POST /api/schedules - Guardar o actualizar horarios para una fecha
 app.post('/api/schedules', async (req, res) => {
-    const { date, available_times } = req.body;
-
-    if (!date || !Array.isArray(available_times)) {
-        return res.status(400).json({ error: 'Faltan campos obligatorios: date, available_times (array).' });
-    }
-
+    const { date, availableTimes } = req.body; // availableTimes es un array de strings (ej. ["09:00", "10:00"])
     try {
-        // Usamos INSERT ... ON CONFLICT para insertar si no existe, o actualizar si ya existe
-        const query = `
-            INSERT INTO schedules (date, available_times)
-            VALUES ($1, $2)
-            ON CONFLICT (date) DO UPDATE SET
-                available_times = EXCLUDED.available_times
-            RETURNING *;
-        `;
-        const values = [date, available_times];
-        const result = await pool.query(query, values);
-        res.status(200).json({ message: 'Horario guardado/actualizado con éxito para la fecha.', schedule: result.rows[0] });
+        const result = await pool.query(
+            'INSERT INTO schedules (date, available_times) VALUES ($1, $2) ON CONFLICT (date) DO UPDATE SET available_times = EXCLUDED.available_times RETURNING *;',
+            [date, availableTimes]
+        );
+        res.status(201).json(result.rows[0]);
     } catch (err) {
-        console.error('Error al guardar/actualizar horario por fecha:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al guardar/actualizar horario por fecha.' });
+        console.error('Error al guardar/actualizar horario:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al guardar/actualizar el horario.' });
     }
 });
 
-// GET /api/schedules - Obtener todos los horarios configurados por fecha
+// GET /api/schedules - Obtener todos los horarios configurados (útil para la gestión)
 app.get('/api/schedules', async (req, res) => {
     try {
-        // Ordenamos por fecha para una mejor visualización
-        const result = await pool.query('SELECT * FROM schedules ORDER BY date;');
-        res.status(200).json({ schedules: result.rows });
+        const result = await pool.query('SELECT * FROM schedules ORDER BY date ASC;');
+        res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error al obtener horarios configurados por fecha:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al obtener horarios configurados por fecha.' });
+        console.error('Error al obtener horarios configurados:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener horarios configurados.' });
     }
 });
 
-// GET /api/schedules/:date - Obtener horario de una fecha específica
+// GET /api/schedules/:date - Obtener un horario específico por fecha
 app.get('/api/schedules/:date', async (req, res) => {
     const { date } = req.params; // La fecha viene en formato YYYY-MM-DD
     try {
@@ -262,7 +202,8 @@ app.delete('/api/schedules/:date', async (req, res) => {
     }
 });
 
+
 // Iniciar el servidor
 app.listen(PORT, () => {
-    console.log(`Servidor backend de NailsCata corriendo en http://localhost:${PORT}`);
+    console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
