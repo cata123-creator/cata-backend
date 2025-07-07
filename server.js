@@ -56,7 +56,7 @@ app.get('/', (req, res) => {
 app.get('/api/appointments', async (req, res) => {
     try {
         // Asegúrate de seleccionar también el 'id' para poder eliminar turnos por ID
-        const result = await pool.query('SELECT id, fecha, hora, servicio, nombre, email, message FROM turnos_nailscata ORDER BY fecha, hora');
+        const result = await pool.query('SELECT id, fecha, hora, servicio, nombre, telefono, message FROM turnos_nailscata ORDER BY fecha, hora');
         res.json({ reservedSlots: result.rows });
     } catch (err) {
         console.error('Error al obtener turnos:', err.message);
