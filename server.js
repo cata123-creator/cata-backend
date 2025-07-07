@@ -66,20 +66,20 @@ app.get('/api/appointments', async (req, res) => {
 
 // POST /api/appointments - Agendar un nuevo turno
 app.post('/api/appointments', async (req, res) => {
-    const { fecha, hora, servicio, nombre, email, message } = req.body;
+    const { fecha, hora, servicio, nombre, telefono, message } = req.body;
 
     // Validar datos de entrada (simple)
-    if (!fecha || !hora || !servicio || !nombre || !email) {
+    if (!fecha || !hora || !servicio || !nombre || !telefono) {
         return res.status(400).json({ error: 'Faltan campos obligatorios para agendar el turno.' });
     }
 
     try {
         const query = `
-            INSERT INTO turnos_nailscata (fecha, hora, servicio, nombre, email, message)
+            INSERT INTO turnos_nailscata (fecha, hora, servicio, nombre, telefono, message)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *;
         `;
-        const values = [fecha, hora, servicio, nombre, email, message || null];
+        const values = [fecha, hora, servicio, nombre, telefono, message || null];
 
         const result = await pool.query(query, values);
         const newAppointment = result.rows[0]; // El turno recién agendado
@@ -94,7 +94,7 @@ app.post('/api/appointments', async (req, res) => {
                 <p>Se ha agendado un nuevo turno en NailsCata:</p>
                 <ul>
                     <li><strong>Nombre:</strong> ${newAppointment.nombre}</li>
-                    <li><strong>Email:</strong> ${newAppointment.email}</li>
+                    <li><strong>Teléfono:</strong> ${newAppointment.telefono}</li>
                     <li><strong>Servicio:</strong> ${newAppointment.servicio}</li>
                     <li><strong>Fecha:</strong> ${newAppointment.fecha}</li>
                     <li><strong>Hora:</strong> ${newAppointment.hora}</li>
