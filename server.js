@@ -155,17 +155,16 @@ app.put('/api/appointments/:id', async (req, res) => {
 
 // DELETE /api/appointments/:id - Eliminar una cita por ID
 app.delete('/api/appointments/:id', async (req, res) => {
-    // ESTA ES LA LÍNEA CRÍTICA A AÑADIR/VERIFICAR
     console.log(`[DEBUG] Solicitud DELETE recibida para /api/appointments/${req.params.id}`);
 
     const { id } = req.params;
     try {
         const result = await pool.query('DELETE FROM appointments WHERE id = $1 RETURNING *;', [id]);
         if (result.rowCount === 0) {
-            console.log(`[DEBUG] Cita con ID ${id} no encontrada.`); // Agregado para depuración
+            console.log(`[DEBUG] Cita con ID ${id} no encontrada.`);
             return res.status(404).json({ error: 'Cita no encontrada.' });
         }
-        console.log(`[DEBUG] Cita con ID ${id} eliminada con éxito.`); // Agregado para depuración
+        console.log(`[DEBUG] Cita con ID ${id} eliminada con éxito.`);
         res.status(200).json({ message: 'Cita eliminada con éxito.', deletedAppointment: result.rows[0] });
     } catch (err) {
         console.error('Error al eliminar cita:', err.message);
@@ -235,16 +234,25 @@ app.delete('/api/schedules/:date', async (req, res) => {
     }
 });
 
+// INICIO DE LA MODIFICACIÓN
 // Ruta para obtener los horarios disponibles de una fecha específica
-// Esta ruta es diferente de /api/schedules/:date porque solo devuelve los 'available_times'
-app.get('/api/available-times/:date', async (req, res) => {
-    console.log(`[DEBUG] Recibida solicitud para fecha: ${req.params.date}`); // Debug log para esta ruta
-    const { date } = req.params;
+// Ahora espera la fecha como un parámetro de consulta (query parameter)
+app.get('/api/available-times', async (req, res) => {
+    // Obtenemos la fecha de req.query en lugar de req.params
+    const { date } = req.query;
+    console.log(`[DEBUG] Recibida solicitud GET para /api/available-times con fecha (query): ${date}`); // Log actualizado
+
+    // Añadir una validación para asegurar que 'date' esté presente
+    if (!date) {
+        return res.status(400).json({ error: 'El parámetro "date" es requerido para obtener horarios disponibles.' });
+    }
+
     try {
         const result = await pool.query('SELECT available_times FROM schedules WHERE date = $1;', [date]);
         if (result.rows.length === 0) {
-            console.log(`[DEBUG] No se encontró horario configurado para ${date}.`);
-            return res.status(200).json([]); // Devolver un array vacío si no hay horarios
+            console.log(`[DEBUG] No se encontró horario configurado para la fecha ${date}.`);
+            // Devolver un array vacío si no hay horarios configurados para la fecha
+            return res.status(200).json([]);
         }
         res.status(200).json(result.rows[0].available_times);
     } catch (err) {
@@ -252,6 +260,7 @@ app.get('/api/available-times/:date', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor al obtener horarios disponibles.' });
     }
 });
+// FIN DE LA MODIFICACIÓN
 
 
 // Middleware para manejar rutas no encontradas (404)
