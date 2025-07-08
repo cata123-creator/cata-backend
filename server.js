@@ -234,18 +234,10 @@ app.delete('/api/schedules/:date', async (req, res) => {
     }
 });
 
-// INICIO DE LA MODIFICACIÓN
-// Ruta para obtener los horarios disponibles de una fecha específica
-// Ahora espera la fecha como un parámetro de consulta (query parameter)
-app.get('/api/available-times', async (req, res) => {
-    // Obtenemos la fecha de req.query en lugar de req.params
-    const { date } = req.query;
-    console.log(`[DEBUG] Recibida solicitud GET para /api/available-times con fecha (query): ${date}`); // Log actualizado
-
-    // Añadir una validación para asegurar que 'date' esté presente
-    if (!date) {
-        return res.status(400).json({ error: 'El parámetro "date" es requerido para obtener horarios disponibles.' });
-    }
+// RUTA MODIFICADA: Ahora espera la fecha como un parámetro de ruta
+app.get('/api/available-times/:date', async (req, res) => {
+    const { date } = req.params; // Obtenemos la fecha de req.params
+    console.log(`[DEBUG] Recibida solicitud GET para /api/available-times con fecha (param): ${date}`);
 
     try {
         const result = await pool.query('SELECT available_times FROM schedules WHERE date = $1;', [date]);
@@ -260,7 +252,6 @@ app.get('/api/available-times', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor al obtener horarios disponibles.' });
     }
 });
-// FIN DE LA MODIFICACIÓN
 
 
 // Middleware para manejar rutas no encontradas (404)
