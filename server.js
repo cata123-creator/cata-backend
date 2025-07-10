@@ -50,7 +50,7 @@ app.post('/api/appointments', async (req, res) => {
 
     try {
         const result = await pool.query(
-            'INSERT INTO appointments(nombre, telefono, servicio, fecha, hora) VALUES($1, $2, $3, $4, $5) RETURNING *;', [name, phone, service, date, time]
+            'INSERT INTO appointments(nombre, telefono, servicio, fecha, hora) VALUES($1, $2, $3, $4, $5) RETURNING *;', [nombre, telefono, service, date, time]
         );
         const newAppointment = result.rows[0];
         console.log('[DEBUG] Cita creada en la base de datos:', newAppointment);
