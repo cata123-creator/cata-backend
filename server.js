@@ -45,12 +45,12 @@ const transporter = nodemailer.createTransport({
 
 // Ruta para agendar un turno
 app.post('/api/appointments', async (req, res) => {
-    const { date, time, name, service, email, phone } = req.body;
+    const { date, time, name, service, phone } = req.body;
     
     // VERIFICACIÓN: Ver la fecha que llega desde el cliente
     console.log('[DEBUG] Fecha recibida para agendar:', date);
 
-    if (!date || !time || !name || !service || !email || !phone) {
+    if (!date || !time || !name || !service || !phone) {
         return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
     }
 
@@ -59,8 +59,8 @@ app.post('/api/appointments', async (req, res) => {
         await client.query('BEGIN');
 
         const newAppointment = await client.query(
-            'INSERT INTO appointments (date, time, name, service, email, phone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;',
-            [date, time, name, service, email, phone]
+            'INSERT INTO appointments (date, time, name, service, phone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;',
+            [date, time, name, service, phone]
         );
 
         await client.query(
