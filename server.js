@@ -43,126 +43,98 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Ruta para agendar un turno
+// RUTA: Agendar una cita
 app.post('/api/appointments', async (req, res) => {
-    const { date, time, name, service, phone } = req.body;
-    
-    // VERIFICACIÓN: Ver la fecha que llega desde el cliente
-    console.log('[DEBUG] Fecha recibida para agendar:', date);
+    const { name, phone, service, date, time } = req.body;
+    console.log('[DEBUG] Datos de la cita recibidos:', { name, phone, service, date, time });
 
-    if (!date || !time || !name || !service || !phone) {
-        return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
-    }
-
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
-
-        const newAppointment = await client.query(
-            'INSERT INTO appointments (date, time, name, service, phone) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;',
-            [date, time, name, service, phone]
+        const result = await pool.query(
+            'INSERT INTO appointments(name, phone, service, date, time) VALUES($1, $2, $3, $4, $5) RETURNING *;', [name, phone, service, date, time]
         );
+        const newAppointment = result.rows[0];
+        console.log('[DEBUG] Cita creada en la base de datos:', newAppointment);
 
-        await client.query(
-            'UPDATE schedules SET available_times = array_remove(available_times, $1) WHERE date = $2;',
-            [time, date]
-        );
-
-        // ENVIAR EL CORREO ELECTRÓNICO (con la versión de texto plano)
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: 'Confirmación de Cita - NailsCata',
-            text: `¡Hola ${name}!\n\nTu cita ha sido agendada con éxito.\n\nDetalles de la cita:\nFecha: ${date}\nHora: ${time}\nServicio: ${service}\n\n¡Te esperamos!\n\nAtentamente,\nNailsCata`
-        };
-
-        await transporter.sendMail(mailOptions);
-        console.log('[INFO] Correo de confirmación enviado a:', email);
-
-        await client.query('COMMIT');
-        res.status(201).json(newAppointment.rows[0]);
+        res.status(201).json(newAppointment);
 
     } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('Error al agendar cita o enviar correo:', err);
-        res.status(500).json({ error: 'Error al agendar la cita. Por favor, intenta de nuevo más tarde.' });
-    } finally {
-        client.release();
+        console.error('Error al agendar la cita:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al agendar la cita.' });
     }
 });
 
-// Ruta para obtener todos los turnos agendados
+// RUTA: Obtener todos los turnos agendados
 app.get('/api/appointments', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM appointments ORDER BY date, time;');
+        const result = await pool.query('SELECT * FROM appointments ORDER BY created_at DESC;');
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error al obtener turnos:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor.' });
+        console.error('Error al obtener los turnos:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener los turnos.' });
     }
 });
 
-// Ruta para eliminar un turno
+// RUTA: Eliminar un turno por ID
 app.delete('/api/appointments/:id', async (req, res) => {
     const { id } = req.params;
-    const client = await pool.connect();
     try {
-        await client.query('BEGIN');
-        
-        // Obtenemos los detalles del turno para restaurar el horario
-        const result = await client.query('SELECT date, time FROM appointments WHERE id = $1;', [id]);
-        if (result.rows.length === 0) {
-            await client.query('ROLLBACK');
+        const result = await pool.query('DELETE FROM appointments WHERE id = $1 RETURNING *;', [id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Turno no encontrado.' });
         }
-        const { date, time } = result.rows[0];
-
-        // Eliminar el turno de la tabla de citas
-        await client.query('DELETE FROM appointments WHERE id = $1;', [id]);
-
-        // Agregar el horario de vuelta a la tabla de horarios disponibles
-        await client.query(
-            'UPDATE schedules SET available_times = array_append(available_times, $1) WHERE date = $2;',
-            [time, date]
-        );
-
-        await client.query('COMMIT');
         res.status(200).json({ message: 'Turno eliminado con éxito.' });
     } catch (err) {
-        await client.query('ROLLBACK');
-        console.error('Error al eliminar el turno:', err);
-        res.status(500).json({ error: 'Error interno del servidor al eliminar turno.' });
-    } finally {
-        client.release();
+        console.error('Error al eliminar turno:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al eliminar el turno.' });
     }
 });
 
-// Ruta para guardar o actualizar horarios
+// RUTA: Crear o actualizar un horario disponible
 app.post('/api/schedules', async (req, res) => {
     const { date, available_times } = req.body;
-    
-    const client = await pool.connect();
     try {
-        const result = await client.query(
-            'INSERT INTO schedules (date, available_times) VALUES ($1, $2) ON CONFLICT (date) DO UPDATE SET available_times = $2;',
-            [date, available_times]
-        );
-        res.status(201).json({ message: 'Horario guardado con éxito.' });
+        const existingSchedule = await pool.query('SELECT * FROM schedules WHERE date = $1;', [date]);
+        if (existingSchedule.rows.length > 0) {
+            // Si ya existe, actualizar el array de horarios
+            const result = await pool.query(
+                'UPDATE schedules SET available_times = $1 WHERE date = $2 RETURNING *;', [available_times, date]
+            );
+            return res.status(200).json(result.rows[0]);
+        } else {
+            // Si no existe, crear un nuevo registro
+            const result = await pool.query(
+                'INSERT INTO schedules(date, available_times) VALUES($1, $2) RETURNING *;', [date, available_times]
+            );
+            return res.status(201).json(result.rows[0]);
+        }
     } catch (err) {
-        console.error('Error al guardar o actualizar horario:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor.' });
-    } finally {
-        client.release();
+        console.error('Error al guardar horario:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al guardar el horario.' });
     }
 });
 
-// Ruta para eliminar horarios por fecha
+// RUTA: Obtener un horario disponible por fecha
+app.get('/api/schedules/:date', async (req, res) => {
+    const { date } = req.params;
+    try {
+        const result = await pool.query('SELECT * FROM schedules WHERE date = $1;', [date]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Horario no encontrado para esta fecha.' });
+        }
+        res.status(200).json(result.rows[0]);
+    } catch (err) {
+        console.error('Error al obtener el horario:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener el horario.' });
+    }
+});
+
+// RUTA: Eliminar un horario por fecha
 app.delete('/api/schedules/:date', async (req, res) => {
     const { date } = req.params;
     try {
         const result = await pool.query('DELETE FROM schedules WHERE date = $1 RETURNING *;', [date]);
         if (result.rowCount === 0) {
-            return res.status(404).json({ error: 'No se encontró horario para eliminar.' });
+            return res.status(404).json({ error: 'Horario no encontrado para eliminar.' });
         }
         res.status(200).json({ message: 'Horario eliminado con éxito.' });
     } catch (err) {
@@ -180,6 +152,7 @@ app.get('/api/available-times/:date', async (req, res) => {
         const result = await pool.query('SELECT available_times FROM schedules WHERE date = $1;', [date]);
         if (result.rows.length === 0) {
             console.log(`[DEBUG] No se encontró horario configurado para la fecha ${date}.`);
+            // Devolver un array vacío si no hay horarios configurados para la fecha
             return res.status(200).json([]);
         }
         res.status(200).json(result.rows[0].available_times);
@@ -198,10 +171,10 @@ app.use((req, res, next) => {
 // Manejador de errores global
 app.use((err, req, res, next) => {
     console.error(err.stack);
-    res.status(500).send('Algo salió mal!');
+    res.status(500).json({ error: 'Algo salió mal. Por favor, intenta de nuevo más tarde.' });
 });
 
 // Iniciar el servidor
 app.listen(PORT, () => {
-    console.log(`Servidor escuchando en http://localhost:${PORT}`);
+    console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
