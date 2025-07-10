@@ -94,6 +94,21 @@ app.post('/api/appointments', async (req, res) => {
     }
 });
 
+// RUTA PARA CREAR/ACTUALIZAR HORARIO (POST)
+app.post('/api/schedules', async (req, res) => {
+    const { date, available_times } = req.body;
+    try {
+        const result = await pool.query(
+            'INSERT INTO schedules(date, available_times) VALUES($1, $2) ON CONFLICT (date) DO UPDATE SET available_times = EXCLUDED.available_times RETURNING *;',
+            [date, available_times]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Error al guardar o actualizar horario:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al guardar o actualizar horario.' });
+    }
+});
+
 // RUTA PARA OBTENER TODOS LOS TURNOS (GET)
 app.get('/api/appointments', async (req, res) => {
     try {
@@ -153,6 +168,7 @@ app.get('/api/available-times/:date', async (req, res) => {
         res.status(500).json({ error: 'Error interno del servidor al obtener horarios disponibles.' });
     }
 });
+
 
 // Middleware para manejar rutas no encontradas (404)
 app.use((req, res, next) => {
