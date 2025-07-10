@@ -1,21 +1,20 @@
-// Cargar variables de entorno desde el archivo .env
 require('dotenv').config();
 
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const nodemailer = require('nodemailer'); // Importa nodemailer
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors({
-    origin: ['https://nailscata1.netlify.app', 'http://localhost:3000'] // podés agregar más si querés
+    origin: ['https://nailscata1.netlify.app', 'http://localhost:3000']
 }));
 app.use(express.json());
 
-// Configuración de la conexión a la base de datos PostgreSQL
+// Configuración de PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
@@ -23,7 +22,6 @@ const pool = new Pool({
     }
 });
 
-// Test de conexión a la base de datos (opcional, pero buena práctica)
 pool.connect()
     .then(client => {
         console.log('Conectado exitosamente a PostgreSQL');
@@ -34,31 +32,30 @@ pool.connect()
         console.error('Connection string:', process.env.DATABASE_URL);
     });
 
-// Configuración de Nodemailer
+// Nodemailer
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER, // Tu dirección de Gmail (ej. tu_email@gmail.com)
-        pass: process.env.EMAIL_PASS // Tu contraseña de aplicación de Gmail
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     }
 });
 
-// Enviar correo de confirmación
 const sendConfirmationEmail = async (appointment) => {
     try {
         const mailOptions = {
             from: process.env.EMAIL_USER,
-            to: process.env.EMAIL_USER, // Cambia esto al email del cliente si lo tienes
+            to: process.env.EMAIL_USER, // O al cliente si tenés el mail
             subject: 'Confirmación de Cita con NailsCata',
             html: `
                 <h1>¡Hola, ${appointment.nombre}!</h1>
                 <p>Tu cita ha sido agendada con éxito.</p>
                 <ul>
-                    <li>**Servicio:** ${appointment.servicio}</li>
-                    <li>**Fecha:** ${appointment.fecha}</li>
-                    <li>**Hora:** ${appointment.hora}</li>
-                    <li>**Nombre:** ${appointment.nombre}</li>
-                    <li>**Teléfono:** ${appointment.telefono}</li>
+                    <li><strong>Servicio:</strong> ${appointment.servicio}</li>
+                    <li><strong>Fecha:</strong> ${appointment.fecha}</li>
+                    <li><strong>Hora:</strong> ${appointment.hora}</li>
+                    <li><strong>Nombre:</strong> ${appointment.nombre}</li>
+                    <li><strong>Teléfono:</strong> ${appointment.telefono}</li>
                 </ul>
                 <p>¡Gracias por elegirnos!</p>
             `,
@@ -70,12 +67,12 @@ const sendConfirmationEmail = async (appointment) => {
     }
 };
 
-// Rutas de la API
+// Rutas
 app.get('/', (req, res) => {
     res.send('¡Hola desde el servidor de NailsCata!');
 });
 
-// RUTA PARA CREAR CITA (POST)
+// Citas
 app.post('/api/appointments', async (req, res) => {
     const { nombre, telefono, service, date, time } = req.body;
     console.log('[DEBUG] Datos de la cita recibidos:', req.body);
@@ -85,8 +82,8 @@ app.post('/api/appointments', async (req, res) => {
             [nombre, telefono, service, date, time]
         );
         const newAppointment = result.rows[0];
-        console.log('[DEBUG] Cita creada en la base de datos:', newAppointment);
-        sendConfirmationEmail(newAppointment); // Enviar correo
+        console.log('[DEBUG] Cita creada:', newAppointment);
+        sendConfirmationEmail(newAppointment);
         res.status(201).json(newAppointment);
     } catch (err) {
         console.error('Error al agendar la cita:', err.message);
@@ -94,7 +91,7 @@ app.post('/api/appointments', async (req, res) => {
     }
 });
 
-// RUTA PARA CREAR/ACTUALIZAR HORARIO (POST)
+// Horarios
 app.post('/api/schedules', async (req, res) => {
     const { date, available_times } = req.body;
     try {
@@ -109,7 +106,18 @@ app.post('/api/schedules', async (req, res) => {
     }
 });
 
-// RUTA PARA OBTENER TODOS LOS TURNOS (GET)
+// 🔧 NUEVA RUTA agregada — Obtener todos los horarios
+app.get('/api/schedules', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM schedules ORDER BY date DESC;');
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error('Error al obtener los horarios:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener los horarios.' });
+    }
+});
+
+// Obtener todos los turnos
 app.get('/api/appointments', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM appointments ORDER BY fecha DESC, hora DESC;');
@@ -120,7 +128,7 @@ app.get('/api/appointments', async (req, res) => {
     }
 });
 
-// RUTA PARA ELIMINAR UN TURNO POR ID (DELETE)
+// Eliminar turno
 app.delete('/api/appointments/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -135,7 +143,7 @@ app.delete('/api/appointments/:id', async (req, res) => {
     }
 });
 
-// RUTA PARA ELIMINAR UN HORARIO POR FECHA
+// Eliminar horario por fecha
 app.delete('/api/schedules/:date', async (req, res) => {
     const { date } = req.params;
     try {
@@ -145,21 +153,18 @@ app.delete('/api/schedules/:date', async (req, res) => {
         }
         res.status(200).json({ message: 'Horario eliminado con éxito.' });
     } catch (err) {
-        console.error('Error al eliminar horario por fecha:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al eliminar horario por fecha.' });
+        console.error('Error al eliminar horario:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al eliminar horario.' });
     }
 });
 
-// RUTA MODIFICADA: Ahora espera la fecha como un parámetro de ruta
+// Obtener horarios disponibles por fecha
 app.get('/api/available-times/:date', async (req, res) => {
-    const { date } = req.params; // Obtenemos la fecha de req.params
-    console.log(`[DEBUG] Recibida solicitud GET para /api/available-times con fecha (param): ${date}`);
-
+    const { date } = req.params;
+    console.log(`[DEBUG] GET /api/available-times/${date}`);
     try {
         const result = await pool.query('SELECT available_times FROM schedules WHERE date = $1;', [date]);
         if (result.rows.length === 0) {
-            console.log(`[DEBUG] No se encontró horario configurado para la fecha ${date}.`);
-            // Devolver un array vacío si no hay horarios configurados para la fecha
             return res.status(200).json([]);
         }
         res.status(200).json(result.rows[0].available_times);
@@ -169,19 +174,18 @@ app.get('/api/available-times/:date', async (req, res) => {
     }
 });
 
-
-// Middleware para manejar rutas no encontradas (404)
+// Middleware 404
 app.use((req, res, next) => {
     res.status(404).json({ error: 'Ruta no encontrada.' });
 });
 
-// Manejador de errores global
+// Middleware de errores
 app.use((err, req, res, next) => {
     console.error('Error del servidor:', err.stack);
     res.status(500).json({ error: 'Algo salió mal en el servidor.' });
 });
 
-// Iniciar el servidor
+// Iniciar servidor
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
