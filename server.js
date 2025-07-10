@@ -45,12 +45,12 @@ const transporter = nodemailer.createTransport({
 
 // RUTA: Agendar una cita
 app.post('/api/appointments', async (req, res) => {
-    const { name, phone, service, date, time } = req.body;
-    console.log('[DEBUG] Datos de la cita recibidos:', { name, phone, service, date, time });
+    const { nombre, telefono, service, date, time } = req.body;
+    console.log('[DEBUG] Datos de la cita recibidos:', { nombre, telefono, service, date, time });
 
     try {
         const result = await pool.query(
-            'INSERT INTO appointments(name, phone, service, date, time) VALUES($1, $2, $3, $4, $5) RETURNING *;', [name, phone, service, date, time]
+            'INSERT INTO appointments(nombre, telefono, servicio, fecha, hora) VALUES($1, $2, $3, $4, $5) RETURNING *;', [name, phone, service, date, time]
         );
         const newAppointment = result.rows[0];
         console.log('[DEBUG] Cita creada en la base de datos:', newAppointment);
