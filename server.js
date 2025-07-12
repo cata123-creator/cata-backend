@@ -14,12 +14,10 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Configuración de PostgreSQL
+// PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: { rejectUnauthorized: false }
 });
 
 pool.connect()
@@ -29,7 +27,6 @@ pool.connect()
     })
     .catch(err => {
         console.error('Error al conectar a PostgreSQL:', err.message);
-        console.error('Connection string:', process.env.DATABASE_URL);
     });
 
 // Nodemailer
@@ -45,7 +42,7 @@ const sendConfirmationEmail = async (appointment) => {
     try {
         const mailOptions = {
             from: process.env.EMAIL_USER,
-            to: process.env.EMAIL_USER, // O al cliente si tenés el mail
+            to: process.env.EMAIL_USER,
             subject: 'Confirmación de Cita con NailsCata',
             html: `
                 <h1>¡Hola, ${appointment.nombre}!</h1>
@@ -72,17 +69,26 @@ app.get('/', (req, res) => {
     res.send('¡Hola desde el servidor de NailsCata!');
 });
 
-// Citas
+// ✅ Ruta protegida contra duplicados
 app.post('/api/appointments', async (req, res) => {
     const { nombre, telefono, service, date, time } = req.body;
     console.log('[DEBUG] Datos de la cita recibidos:', req.body);
+
     try {
+        const check = await pool.query(
+            'SELECT * FROM appointments WHERE fecha = $1 AND hora = $2;',
+            [date, time]
+        );
+        if (check.rows.length > 0) {
+            return res.status(400).json({ error: 'Ese horario ya fue reservado por otra persona.' });
+        }
+
         const result = await pool.query(
             'INSERT INTO appointments(nombre, telefono, servicio, fecha, hora) VALUES($1, $2, $3, $4, $5) RETURNING *;',
             [nombre, telefono, service, date, time]
         );
+
         const newAppointment = result.rows[0];
-        console.log('[DEBUG] Cita creada:', newAppointment);
         sendConfirmationEmail(newAppointment);
         res.status(201).json(newAppointment);
     } catch (err) {
@@ -91,7 +97,16 @@ app.post('/api/appointments', async (req, res) => {
     }
 });
 
-// Horarios
+app.get('/api/appointments', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM appointments ORDER BY fecha DESC, hora DESC;');
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error al obtener los turnos:', err.message);
+        res.status(500).json({ error: 'Error interno del servidor al obtener los turnos.' });
+    }
+});
+
 app.post('/api/schedules', async (req, res) => {
     const { date, available_times } = req.body;
     try {
@@ -106,7 +121,6 @@ app.post('/api/schedules', async (req, res) => {
     }
 });
 
-// 🔧 NUEVA RUTA agregada — Obtener todos los horarios
 app.get('/api/schedules', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM schedules ORDER BY date DESC;');
@@ -117,18 +131,6 @@ app.get('/api/schedules', async (req, res) => {
     }
 });
 
-// Obtener todos los turnos
-app.get('/api/appointments', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT * FROM appointments ORDER BY fecha DESC, hora DESC;');
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error al obtener los turnos:', err.message);
-        res.status(500).json({ error: 'Error interno del servidor al obtener los turnos.' });
-    }
-});
-
-// Eliminar turno
 app.delete('/api/appointments/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -143,7 +145,6 @@ app.delete('/api/appointments/:id', async (req, res) => {
     }
 });
 
-// Eliminar horario por fecha
 app.delete('/api/schedules/:date', async (req, res) => {
     const { date } = req.params;
     try {
@@ -158,15 +159,11 @@ app.delete('/api/schedules/:date', async (req, res) => {
     }
 });
 
-// Obtener horarios disponibles por fecha
 app.get('/api/available-times/:date', async (req, res) => {
     const { date } = req.params;
-    console.log(`[DEBUG] GET /api/available-times/${date}`);
     try {
         const result = await pool.query('SELECT available_times FROM schedules WHERE date = $1;', [date]);
-        if (result.rows.length === 0) {
-            return res.status(200).json([]);
-        }
+        if (result.rows.length === 0) return res.status(200).json([]);
         res.status(200).json(result.rows[0].available_times);
     } catch (err) {
         console.error('Error al obtener horarios disponibles:', err.message);
@@ -174,18 +171,10 @@ app.get('/api/available-times/:date', async (req, res) => {
     }
 });
 
-// Middleware 404
-app.use((req, res, next) => {
+app.use((req, res) => {
     res.status(404).json({ error: 'Ruta no encontrada.' });
 });
 
-// Middleware de errores
-app.use((err, req, res, next) => {
-    console.error('Error del servidor:', err.stack);
-    res.status(500).json({ error: 'Algo salió mal en el servidor.' });
-});
-
-// Iniciar servidor
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
